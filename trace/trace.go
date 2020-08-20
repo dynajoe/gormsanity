@@ -1,4 +1,4 @@
-package trace
+package main
 
 import (
 	"bufio"
@@ -63,29 +63,24 @@ func TraceDB(db *gorm.DB) (*gorm.DB, func()) {
 	}
 
 	// Create
-	createCallback := db.Callback().Create()
-	createCallback.After("gorm:begin_transaction").Register(trackScopeKey, t.EventGenerator("create"))
-	createCallback.After("gorm:commit_or_rollback_transaction").Register(trackScopeKey+":complete", t.CompleteEvent)
+	db.Callback().Create().After("gorm:begin_transaction").Register(trackScopeKey, t.EventGenerator("create"))
+	db.Callback().Create().After("gorm:commit_or_rollback_transaction").Register(trackScopeKey+":complete", t.CompleteEvent)
 
 	// RowQuery
-	rowQueryCallback := db.Callback().RowQuery()
-	rowQueryCallback.Before("gorm:row_query").Register(trackScopeKey, t.EventGenerator("row_query"))
-	rowQueryCallback.After("gorm:row_query").Register(trackScopeKey+":complete", t.CompleteEvent)
+	db.Callback().RowQuery().Before("gorm:row_query").Register(trackScopeKey, t.EventGenerator("row_query"))
+	db.Callback().RowQuery().After("gorm:row_query").Register(trackScopeKey+":complete", t.CompleteEvent)
 
 	// Query
-	queryCallback := db.Callback().Query()
-	queryCallback.Before("gorm:query").Register(trackScopeKey, t.EventGenerator("query"))
-	queryCallback.After("gorm:after_query").Register(trackScopeKey+":complete", t.CompleteEvent)
+	db.Callback().Query().Before("gorm:query").Register(trackScopeKey, t.EventGenerator("query"))
+	db.Callback().Query().After("gorm:after_query").Register(trackScopeKey+":complete", t.CompleteEvent)
 
 	// Update
-	updateCallback := db.Callback().Update()
-	updateCallback.After("gorm:begin_transaction").Register(trackScopeKey, t.EventGenerator("update"))
-	updateCallback.After("gorm:commit_or_rollback_transaction").Register(trackScopeKey+":complete", t.CompleteEvent)
+	db.Callback().Update().After("gorm:begin_transaction").Register(trackScopeKey, t.EventGenerator("update"))
+	db.Callback().Update().After("gorm:commit_or_rollback_transaction").Register(trackScopeKey+":complete", t.CompleteEvent)
 
 	// Delete
-	deleteCallback := db.Callback().Delete()
-	deleteCallback.After("gorm:begin_transaction").Register(trackScopeKey, t.EventGenerator("delete"))
-	deleteCallback.After("gorm:commit_or_rollback_transaction").Register(trackScopeKey+":complete", t.CompleteEvent)
+	db.Callback().Delete().After("gorm:begin_transaction").Register(trackScopeKey, t.EventGenerator("delete"))
+	db.Callback().Delete().After("gorm:commit_or_rollback_transaction").Register(trackScopeKey+":complete", t.CompleteEvent)
 
 	return db, func() {
 		t.Close()
