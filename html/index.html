@@ -8,6 +8,9 @@
     <script src="https://unpkg.com/react@16.4.1/umd/react.production.min.js"></script>
     <script src="https://unpkg.com/react-dom@16.4.1/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <link rel="stylesheet"
+      href="//cdnjs.cloudflare.com/ajax/libs/highlight.js/10.1.2/styles/default.min.css">
+    <script src="//cdnjs.cloudflare.com/ajax/libs/highlight.js/10.1.2/highlight.min.js"></script>
     <!-- RAW_DATA -->
     <script type="text/gormsanity">
         {"start_time":"2020-08-20T10:10:19.418194-05:00","query":"INSERT INTO \"accounts\" (\"email_address\",\"status\",\"nick_name\",\"organization_id\") VALUES ($1,$2,$3,$4) RETURNING \"accounts\".\"id\"","end_time":"2020-08-20T10:10:19.421065-05:00","event_type":"create","rows_affected":1,"errors":[],"db_instance_id":"0xc0000b5bd80xc0002978c0","completed":true,"settings":{}}
@@ -72,6 +75,11 @@
     <!-- /APP -->
     <script type="text/babel">
         ReactDOM.render(<App data={window.RAW_DATA}/>, document.getElementById('root'))
+        document.addEventListener('DOMContentLoaded', (event) => {
+          document.querySelectorAll('pre code').forEach((block) => {
+            hljs.highlightBlock(block);
+          });
+        });
     </script>
   </body>
 </html>
