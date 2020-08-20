@@ -8,6 +8,7 @@
     <script src="https://unpkg.com/react@16.4.1/umd/react.production.min.js"></script>
     <script src="https://unpkg.com/react-dom@16.4.1/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <!-- RAW_DATA -->
     <script type="text/gormsanity">
         {"start_time":"2020-08-20T10:10:19.418194-05:00","query":"INSERT INTO \"accounts\" (\"email_address\",\"status\",\"nick_name\",\"organization_id\") VALUES ($1,$2,$3,$4) RETURNING \"accounts\".\"id\"","end_time":"2020-08-20T10:10:19.421065-05:00","event_type":"create","rows_affected":1,"errors":[],"db_instance_id":"0xc0000b5bd80xc0002978c0","completed":true,"settings":{}}
         {"start_time":"2020-08-20T10:10:19.421392-05:00","query":"INSERT INTO \"accounts\" (\"email_address\",\"status\",\"nick_name\",\"organization_id\") VALUES ($1,$2,$3,$4) RETURNING \"accounts\".\"id\"","end_time":"2020-08-20T10:10:19.423424-05:00","event_type":"create","rows_affected":1,"errors":[],"db_instance_id":"0xc0000b5d200xc000297a40","completed":true,"settings":{}}
@@ -57,7 +58,7 @@
         {"start_time":"2020-08-20T10:10:52.940564-05:00","query":"SELECT * FROM \"accounts\"  ","end_time":"2020-08-20T10:10:52.941542-05:00","event_type":"query","rows_affected":5,"errors":[],"db_instance_id":"0xc0000b43d80xc000023540","completed":true,"settings":{}}
         {"start_time":"2020-08-20T10:10:52.941586-05:00","query":"SELECT * FROM \"accounts\"  ","end_time":"2020-08-20T10:10:52.942593-05:00","event_type":"query","rows_affected":5,"errors":[],"db_instance_id":"0xc0000b45680xc0000239c0","completed":true,"settings":{}}
     </script>
-    <!-- RAW_DATA -->
+    <!-- /RAW_DATA -->
     <script type="text/javascript">
         const gormsanity_scripts = document.querySelectorAll('script[type="text/gormsanity"]')
         const rows = gormsanity_scripts[gormsanity_scripts.length - 1].innerHTML.split(/\n+/g)
@@ -66,7 +67,9 @@
         })
         window.RAW_DATA = data
     </script>
+    <!-- APP -->
     <script type="text/babel" src="./index.js"></script>
+    <!-- /APP -->
     <script type="text/babel">
         ReactDOM.render(<App data={window.RAW_DATA}/>, document.getElementById('root'))
     </script>
