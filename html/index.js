@@ -28,15 +28,13 @@ const App = ({ data }) => {
    const slow = {
       title: 'Slow',
       key: 'slow',
-      data: data.filter((q) => {
-         return q.is_slow
-      }),
+      data: data.filter((q) => q.is_slow),
    }
 
    const warnings = {
       title: 'Warn',
       key: 'Warn',
-      data: [],
+      data: data.filter((q) => !_.isEmpty(q.warnings)),
    }
 
    const sorted_by_duration = _.orderBy(data, (x) => x.duration, 'desc')
@@ -52,37 +50,37 @@ const App = ({ data }) => {
       <>
          <h1 className="header title has-text-left">
             G
-            <span class="icon has-text-danger">
-               <i class="fas fa-angry"></i>
+            <span className="icon has-text-danger">
+               <i className="fas fa-angry"></i>
             </span>
             RMSanity
          </h1>
          <div className="container">
-            <div class="columns">
-               <div class="column is-one-quarter">
-                  <aside class="menu">
+            <div className="columns">
+               <div className="column is-one-quarter">
+                  <aside className="menu">
                      <nav className="level">
                         <div className="level-left">
-                           <div class="level-item">
-                              <div class="field has-addons">
-                                 <p class="control">
+                           <div className="level-item">
+                              <div className="field has-addons">
+                                 <p className="control">
                                     <input
-                                       class="input"
+                                       className="input"
                                        type="text"
                                        placeholder="Find a query"
                                     />
                                  </p>
-                                 <p class="control">
-                                    <button class="button">Search</button>
+                                 <p className="control">
+                                    <button className="button">Search</button>
                                  </p>
                               </div>
                            </div>
                         </div>
                      </nav>
-                     <p class="menu-label">Category</p>
-                     <ul class="menu-list">
+                     <p className="menu-label">Category</p>
+                     <ul className="menu-list">
                         <li>
-                           <a class="is-active">All</a>
+                           <a className="is-active">All</a>
                         </li>
                         <li>
                            <a>Slowest</a>
@@ -91,8 +89,8 @@ const App = ({ data }) => {
                            <a>Frequency</a>
                         </li>
                      </ul>
-                     <p class="menu-label">Warnings</p>
-                     <ul class="menu-list">
+                     <p className="menu-label">Warnings</p>
+                     <ul className="menu-list">
                         <li>
                            <a>Missing WHERE</a>
                         </li>
@@ -102,7 +100,7 @@ const App = ({ data }) => {
                      </ul>
                   </aside>
 
-                  <div class="columns is-multiline mt-5">
+                  <div className="columns is-multiline mt-5">
                      <div className="has-text-centered column is-full">
                         <div>
                            <p className="heading">Queries</p>
@@ -141,7 +139,7 @@ const App = ({ data }) => {
                      </div>
                   </div>
                </div>
-               <div class="column">
+               <div className="column">
                   <div>
                      <nav className="level">
                         <div className="level-left">
@@ -213,13 +211,50 @@ const QueryGroup = ({ group }) => {
       className = 'hidden'
    }
 
+   const all_warnings = _(group)
+      .map((x) => x.warnings)
+      .flatten()
+      .compact()
+      .uniq()
+      .value()
+
+   const all_settings = _(group)
+      .map((q) => q.settings)
+      .reduce((x, r) => _.mergeWith(x, r))
+
+   const all_tables = _.map(group, (q) => q.table_name)
+
    return (
       <div className="card">
          <header className="card-header">
-            <p className="card-header-title has-text-dark">
-               {queries.length} {pluralize(queries.length, 'query', 'queries')}{' '}
-               ({duration_ms} ms) - {first_query.db_instance_id}
-            </p>
+            <div className="card-header-title">
+               <div class="level">
+                  <div className="has-text-dark level-left">
+                     <span className="mr-2">{all_tables.join(', ')}</span>
+                  </div>
+
+                  <div className="has-text-right level-right">
+                     <Warnings values={all_warnings} />
+                     {_.map(all_settings, (v, k) => {
+                        return (
+                           <span
+                              title={k}
+                              key={k}
+                              className="tag ml-2 is-info is-light"
+                           >
+                              {v}
+                           </span>
+                        )
+                     })}
+                     <span className="ml-2 has-text-weight-light">
+                        {queries.length}{' '}
+                        {pluralize(queries.length, 'query', 'queries')} (
+                        {duration_ms} ms)
+                     </span>
+                  </div>
+               </div>
+            </div>
+
             <a
                href="#"
                className="card-header-icon"
@@ -235,15 +270,41 @@ const QueryGroup = ({ group }) => {
             {group.map((d, i) => {
                return (
                   <div className="query" key={i}>
+                     <div className="mb-2">
+                        <Warnings values={d.warnings} />
+                     </div>
                      <Highlight className={className} language="sql">
                         {SqlFormatter.format(d.query)}
                      </Highlight>
+                     {_.isEmpty(d.sql_vars) ? null : (
+                        <SQLVars vars={d.sql_vars} />
+                     )}
                   </div>
                )
             })}
          </div>
       </div>
    )
+}
+
+const SQLVars = ({ vars }) => {
+   return (
+      <ul>
+         {vars.map((v, i) => (
+            <li key={i}>{'$' + (i + 1) + ' = ' + v}</li>
+         ))}
+      </ul>
+   )
+}
+
+const Warnings = ({ values }) => {
+   return _.map(values, (w) => {
+      return (
+         <span key={w} className="tag ml-2 is-warning">
+            {w}
+         </span>
+      )
+   })
 }
 
 ReactDOM.render(<App data={window.RAW_DATA} />, document.getElementById('root'))

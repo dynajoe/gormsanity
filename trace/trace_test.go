@@ -119,10 +119,6 @@ func CreateAccounts(db *gorm.DB, assert *require.Assertions, accounts ...*models
 	tx.Commit()
 }
 
-func TestFoo(t *testing.T) {
-
-}
-
 func (s *AccountTestSuite) TestDeleteModel() {
 	DeleteAllAccounts(s.db, s.a)
 	CreateAccounts(s.db, s.a, testAccounts[:2]...)

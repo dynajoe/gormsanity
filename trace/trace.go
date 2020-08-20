@@ -51,6 +51,9 @@ type GormEvent struct {
 	IsComplete    bool                   `json:"completed"`
 	Vars          map[string]interface{} `json:"settings"`
 	InitialFields []gorm.Field           `json:"-"`
+	Warnings      []string               `json:"warnings"`
+	TableName     string                 `json:"table_name"`
+	SQLVars       []interface{}          `json:"sql_vars"`
 }
 
 type Tracer struct {
@@ -100,9 +103,10 @@ func (t *Tracer) GenericAfterComplete(scope *gorm.Scope) {
 	// General rules here
 	key, _ := scope.Get(trackScopeKey)
 	entry := t.Events[key.(string)]
-	t.CompleteEvent(scope)
-
+	extractFromScope(entry, scope)
 	t.RunGenericRules(entry, scope)
+	t.CompleteEvent(scope)
+}
 
 	switch entry.EventType {
 	case "delete":
@@ -156,6 +160,7 @@ func (t *Tracer) AddEvent(eventType string, scope *gorm.Scope) {
 		StartTime:  time.Now(),
 		EventType:  eventType,
 		InstanceID: scope.InstanceID(),
+		TableName:  scope.TableName(),
 	}
 	extractFromScope(e, scope)
 
@@ -169,16 +174,16 @@ func (t *Tracer) AddEvent(eventType string, scope *gorm.Scope) {
 }
 
 func (t *Tracer) CompleteEvent(scope *gorm.Scope) {
-	key, ok := scope.Get(trackScopeKey)
-	if !ok {
+	// Complete the event
+	key, _ := scope.Get(trackScopeKey)
+	entry := t.Events[key.(string)]
+	if entry.IsComplete {
 		return
 	}
 
-	// Complete the event
-	entry := t.Events[key.(string)]
 	entry.EndTime = time.Now()
 	entry.IsComplete = true
-	extractFromScope(entry, scope)
+	writeEntry(entry)
 }
 
 var knownAttrs = []string{
@@ -238,6 +243,33 @@ func ValuesDoesntMatchSQLVars(event *GormEvent, scope *gorm.Scope) error {
 	return nil
 }
 
+func NoWhereClauseInSelect(event *GormEvent, scope *gorm.Scope) error {
+	if event.EventType == "query" && len(scope.SQLVars) == 0 {
+		event.Warnings = append(event.Warnings, "no_where_clause")
+		return RuleError("no where clause in select")
+	}
+	return nil
+}
+
+func InsertWithBlanks(event *GormEvent, scope *gorm.Scope) error {
+	if event.EventType == "create" {
+		blankValue := false
+		for _, v := range scope.SQLVars {
+			if v == reflect.Zero(reflect.TypeOf(v)).Interface() {
+				blankValue = true
+			}
+		}
+
+		if blankValue {
+			event.Warnings = append(event.Warnings, "zero_insert_value")
+			event.SQLVars = scope.SQLVars
+			return RuleError("using a zero value in INSERT query")
+		}
+	}
+
+	return nil
+}
+
 func stringArrayContains(arr []string, s string) bool {
 	for _, x := range arr {
 		if s == x {
@@ -249,4 +281,6 @@ func stringArrayContains(arr []string, s string) bool {
 
 var allGenericRules = []RuleFunc{
 	ValuesDoesntMatchSQLVars,
+	NoWhereClauseInSelect,
+	InsertWithBlanks,
 }
