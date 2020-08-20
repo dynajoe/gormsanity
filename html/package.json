@@ -4,11 +4,28 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "start": "npx http-server -c-1"
+    "dev": "parcel index.html",
+    "build": "parcel build index.html"
   },
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "http-server": "^0.12.3"
+    "@fortawesome/fontawesome-free": "^5.14.0",
+    "bulma": "^0.9.0",
+    "fontawesome": "^5.6.3",
+    "http-server": "^0.12.3",
+    "luxon": "^1.24.1",
+    "moment": "^2.27.0",
+    "react": "^16.13.1",
+    "react-dom": "^16.13.1",
+    "react-highlight.js": "^1.0.7",
+    "sql-formatter": "^2.3.3"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.11.1",
+    "@babel/preset-env": "^7.11.0",
+    "@babel/preset-react": "^7.10.4",
+    "parcel-bundler": "^1.12.4",
+    "sass": "^1.26.10"
   }
 }
