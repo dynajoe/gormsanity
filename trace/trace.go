@@ -3,9 +3,9 @@ package trace
 import (
 	"bufio"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
+	"reflect"
 	"sync"
 	"testing"
 	"time"
@@ -65,11 +65,10 @@ type Tracer struct {
 
 func TraceDB(db *gorm.DB, testT *testing.T) (*gorm.DB, *Tracer, func()) {
 	t := Tracer{
-		Events:   make(map[string]*GormEvent),
-		mu:       &sync.Mutex{},
-		dontFail: true,
-		testT:    testT,
-		db:       db,
+		Events: make(map[string]*GormEvent),
+		mu:     &sync.Mutex{},
+		testT:  testT,
+		db:     db,
 	}
 
 	// Create
@@ -216,8 +215,8 @@ func (t *Tracer) Close() {
 	}
 }
 
-func RuleError(msg string) error {
-	return errors.New(msg)
+func RuleError(msg string, args ...interface{}) error {
+	return fmt.Errorf(msg, args...)
 }
 
 type RuleFunc func(*GormEvent, *gorm.Scope) error
@@ -226,16 +225,26 @@ type RuleFunc func(*GormEvent, *gorm.Scope) error
 
 func ValuesDoesntMatchSQLVars(event *GormEvent, scope *gorm.Scope) error {
 	notBlankValues := 0
+	defaultGORMFields := []string{"created_at", "updated_at"}
 	for _, f := range event.InitialFields {
-		if !f.IsBlank {
+		if !f.IsBlank || stringArrayContains(defaultGORMFields, f.DBName) || f.Struct.Type.Kind() == reflect.Bool {
 			notBlankValues++
 		}
 	}
 	if len(scope.SQLVars) != notBlankValues {
-		return RuleError("not cool bro")
+		return RuleError("not all values provided into GORM have been used for the final SQL query: (%s, %v)", scope.SQL, scope.SQLVars)
 	}
 
 	return nil
+}
+
+func stringArrayContains(arr []string, s string) bool {
+	for _, x := range arr {
+		if s == x {
+			return true
+		}
+	}
+	return false
 }
 
 var allGenericRules = []RuleFunc{

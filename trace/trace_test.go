@@ -50,6 +50,7 @@ func prepareDatabase(testT *testing.T) (*gorm.DB, *Tracer, func(), error) {
 
 	// Add the GORMSanity Tracer
 	db, tracer, closer := TraceDB(db, testT)
+	tracer.dontFail = true
 
 	// Create our test schema
 	db.Exec(`
