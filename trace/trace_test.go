@@ -2,6 +2,7 @@ package trace
 
 import (
 	"fmt"
+	"testing"
 
 	"github.com/jinzhu/gorm"
 	_ "github.com/lib/pq"
@@ -44,6 +45,9 @@ func prepareDatabase() (*gorm.DB, error) {
 	// Note what GORM prints is an APPROXIMATION
 	// of what's executed against the database.
 	db = db.Debug()
+
+	// Add the GORMSanity Tracer
+	db, _ = TraceDB(db)
 
 	// Create our test schema
 	db.Exec(`
@@ -106,4 +110,8 @@ func CreateAccounts(db *gorm.DB, assert *require.Assertions, accounts ...*models
 		assert.NoError(tx.Create(a).Error)
 	}
 	tx.Commit()
+}
+
+func TestFoo(t *testing.T) {
+
 }
