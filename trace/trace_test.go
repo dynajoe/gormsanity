@@ -18,15 +18,17 @@ var MaxOpenConns = 5
 type AccountTestSuite struct {
 	suite.Suite
 
-	db *gorm.DB
-	a  *require.Assertions
+	db           *gorm.DB
+	a            *require.Assertions
+	tracer       *Tracer
+	tracerCloser func()
 }
 
-func prepareDatabase() (*gorm.DB, error) {
+func prepareDatabase(testT *testing.T) (*gorm.DB, *Tracer, func(), error) {
 	// Connect to default database
 	db, err := gorm.Open("postgres", fmt.Sprintf("host=127.0.0.1 port=5432 sslmode=disable user=%s password=%s", "postgres", "postgres"))
 	if err != nil {
-		return nil, err
+		return nil, nil, nil, err
 	}
 	db.Exec(fmt.Sprintf("DROP DATABASE IF EXISTS %s", DBName))
 	db.Exec(fmt.Sprintf("CREATE DATABASE %s", DBName))
@@ -35,7 +37,7 @@ func prepareDatabase() (*gorm.DB, error) {
 	// Now connect to the test database
 	db, err = gorm.Open("postgres", fmt.Sprintf("host=127.0.0.1 port=5432 sslmode=disable user=%s password=%s dbname=%s", "postgres", "postgres", DBName))
 	if err != nil {
-		return nil, err
+		return nil, nil, nil, err
 	}
 
 	// Set max open connections to a known value
@@ -47,7 +49,7 @@ func prepareDatabase() (*gorm.DB, error) {
 	db = db.Debug()
 
 	// Add the GORMSanity Tracer
-	db, _ = TraceDB(db)
+	db, tracer, closer := TraceDB(db, testT)
 
 	// Create our test schema
 	db.Exec(`
@@ -61,16 +63,20 @@ func prepareDatabase() (*gorm.DB, error) {
 		)
 	`)
 
-	return db, nil
+	return db, tracer, closer, nil
 }
 
 func (s *AccountTestSuite) SetupTest() {
-	db, err := prepareDatabase()
+	var err error
+	s.db, s.tracer, s.tracerCloser, err = prepareDatabase(s.T())
 	if err != nil {
 		s.T().Error(err)
 	}
-	s.db = db
 	s.a = require.New(s.T())
+}
+
+func TestAccountTestSuite(t *testing.T) {
+	suite.Run(t, new(AccountTestSuite))
 }
 
 func DeleteAllAccounts(db *gorm.DB, assert *require.Assertions) {
@@ -114,4 +120,22 @@ func CreateAccounts(db *gorm.DB, assert *require.Assertions, accounts ...*models
 
 func TestFoo(t *testing.T) {
 
+}
+
+func (s *AccountTestSuite) TestDeleteModel() {
+	DeleteAllAccounts(s.db, s.a)
+	CreateAccounts(s.db, s.a, testAccounts[:2]...)
+
+	deleteM := &models.Account{
+		Id:           testAccounts[0].Id,
+		EmailAddress: testAccounts[0].EmailAddress,
+	}
+	s.db.Delete(deleteM)
+	s.a.Equal(1, len(s.tracer.Errors))
+}
+
+func (s *AccountTestSuite) TestCreateWithModel() {
+	DeleteAllAccounts(s.db, s.a)
+	CreateAccounts(s.db, s.a, testAccounts[0])
+	s.a.Equal(0, len(s.tracer.Errors))
 }

@@ -3,9 +3,11 @@ package trace
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"sync"
+	"testing"
 	"time"
 
 	"github.com/google/uuid"
@@ -39,101 +41,116 @@ func writeEntry(gormEvent *GormEvent) {
 }
 
 type GormEvent struct {
-	StartTime    time.Time              `json:"start_time"`
-	Query        string                 `json:"query"`
-	EndTime      time.Time              `json:"end_time"`
-	EventType    string                 `json:"event_type"`
-	RowsAffected int64                  `json:"rows_affected"`
-	Errors       []error                `json:"errors"`
-	InstanceID   string                 `json:"db_instance_id"`
-	IsComplete   bool                   `json:"completed"`
-	Vars         map[string]interface{} `json:"settings"`
+	StartTime     time.Time              `json:"start_time"`
+	Query         string                 `json:"query"`
+	EndTime       time.Time              `json:"end_time"`
+	EventType     string                 `json:"event_type"`
+	RowsAffected  int64                  `json:"rows_affected"`
+	Errors        []error                `json:"errors"`
+	InstanceID    string                 `json:"db_instance_id"`
+	IsComplete    bool                   `json:"completed"`
+	Vars          map[string]interface{} `json:"settings"`
+	InitialFields []gorm.Field           `json:"-"`
 }
 
-type tracer struct {
-	ID     string
-	Events map[string]*GormEvent
-	mu     *sync.Mutex
+type Tracer struct {
+	ID       string
+	Events   map[string]*GormEvent
+	Errors   []error
+	mu       *sync.Mutex
+	dontFail bool
+	testT    *testing.T
+	db       *gorm.DB
 }
 
-func TraceDB(db *gorm.DB) (*gorm.DB, func()) {
-	t := tracer{
-		Events: make(map[string]*GormEvent),
-		mu:     &sync.Mutex{},
+func TraceDB(db *gorm.DB, testT *testing.T) (*gorm.DB, *Tracer, func()) {
+	t := Tracer{
+		Events:   make(map[string]*GormEvent),
+		mu:       &sync.Mutex{},
+		dontFail: true,
+		testT:    testT,
+		db:       db,
 	}
 
 	// Create
-	db.Callback().Create().After("gorm:begin_transaction").Register(trackScopeKey, t.CreateEvent)
-	db.Callback().Create().After("gorm:commit_or_rollback_transaction").Register(trackScopeKey+":complete", t.CompleteCreateEvent)
+	db.Callback().Create().After("gorm:begin_transaction").Register(trackScopeKey, t.CreateEvent) // INSERT
+	db.Callback().Create().After("gorm:commit_or_rollback_transaction").Register(trackScopeKey+":complete", t.GenericAfterComplete)
 
 	// RowQuery
 	db.Callback().RowQuery().Before("gorm:row_query").Register(trackScopeKey, t.RowQueryEvent)
-	db.Callback().RowQuery().After("gorm:row_query").Register(trackScopeKey+":complete", t.CompleteRowQueryEvent)
+	db.Callback().RowQuery().After("gorm:row_query").Register(trackScopeKey+":complete", t.GenericAfterComplete)
 
 	// Query
-	db.Callback().Query().Before("gorm:query").Register(trackScopeKey, t.QueryEvent)
-	db.Callback().Query().After("gorm:after_query").Register(trackScopeKey+":complete", t.CompleteQueryEvent)
+	db.Callback().Query().Before("gorm:query").Register(trackScopeKey, t.QueryEvent) // SELECT
+	db.Callback().Query().After("gorm:after_query").Register(trackScopeKey+":complete", t.GenericAfterComplete)
 
 	// Update
-	db.Callback().Update().After("gorm:begin_transaction").Register(trackScopeKey, t.UpdateEvent)
-	db.Callback().Update().After("gorm:commit_or_rollback_transaction").Register(trackScopeKey+":complete", t.CompleteUpdateEvent)
+	db.Callback().Update().After("gorm:begin_transaction").Register(trackScopeKey, t.UpdateEvent) // UPDATE
+	db.Callback().Update().After("gorm:commit_or_rollback_transaction").Register(trackScopeKey+":complete", t.GenericAfterComplete)
 
 	// Delete
-	db.Callback().Delete().After("gorm:begin_transaction").Register(trackScopeKey, t.DeleteEvent)
-	db.Callback().Delete().After("gorm:commit_or_rollback_transaction").Register(trackScopeKey+":complete", t.CompleteDeleteEvent)
+	db.Callback().Delete().After("gorm:begin_transaction").Register(trackScopeKey, t.DeleteEvent) // DELETE
+	db.Callback().Delete().After("gorm:commit_or_rollback_transaction").Register(trackScopeKey+":complete", t.GenericAfterComplete)
 
-	return db, func() {
+	return db, &t, func() {
 		t.Close()
 	}
 }
 
-func (t *tracer) CreateEvent(scope *gorm.Scope){
+func (t *Tracer) GenericAfterComplete(scope *gorm.Scope) {
+	// General rules here
+	key, _ := scope.Get(trackScopeKey)
+	entry := t.Events[key.(string)]
+	t.CompleteEvent(scope)
+
+	t.RunGenericRules(entry, scope)
+
+	switch entry.EventType {
+	case "delete":
+		// Run specific rules
+	}
+}
+
+func (t *Tracer) RunGenericRules(event *GormEvent, scope *gorm.Scope) {
+	for _, r := range allGenericRules {
+		err := r(event, scope)
+		if err != nil {
+			if t.dontFail {
+				t.Errors = append(t.Errors, err)
+			} else {
+				t.testT.Error(err)
+			}
+		}
+	}
+}
+
+func (t *Tracer) CreateEvent(scope *gorm.Scope) {
 	t.AddEvent("create", scope)
 }
 
-func (t *tracer) QueryEvent(scope *gorm.Scope){
+func (t *Tracer) QueryEvent(scope *gorm.Scope) {
 	t.AddEvent("query", scope)
 }
 
-func (t *tracer) RowQueryEvent(scope *gorm.Scope){
+func (t *Tracer) RowQueryEvent(scope *gorm.Scope) {
 	t.AddEvent("row_query", scope)
 }
 
-func (t *tracer) UpdateEvent(scope *gorm.Scope){
+func (t *Tracer) UpdateEvent(scope *gorm.Scope) {
 	t.AddEvent("update", scope)
 }
 
-func (t *tracer) DeleteEvent(scope *gorm.Scope){
+func (t *Tracer) DeleteEvent(scope *gorm.Scope) {
 	t.AddEvent("delete", scope)
 }
 
-func (t *tracer) CompleteCreateEvent(scope *gorm.Scope){
-	t.CompleteEvent(scope)
-}
-
-func (t *tracer) CompleteQueryEvent(scope *gorm.Scope){
-	t.CompleteEvent(scope)
-}
-
-func (t *tracer) CompleteRowQueryEvent(scope *gorm.Scope){
-	t.CompleteEvent(scope)
-}
-
-func (t *tracer) CompleteUpdateEvent(scope *gorm.Scope){
-	t.CompleteEvent(scope)
-}
-
-func (t *tracer) CompleteDeleteEvent(scope *gorm.Scope){
-	t.CompleteEvent(scope)
-}
-
-func (t *tracer) EventGenerator(eventType string) func(scope *gorm.Scope) {
+func (t *Tracer) EventGenerator(eventType string) func(scope *gorm.Scope) {
 	return func(scope *gorm.Scope) {
 		t.AddEvent(eventType, scope)
 	}
 }
 
-func (t *tracer) AddEvent(eventType string, scope *gorm.Scope) {
+func (t *Tracer) AddEvent(eventType string, scope *gorm.Scope) {
 	key := uuid.New().String()
 	scope.Set(trackScopeKey, key)
 	e := &GormEvent{
@@ -143,22 +160,26 @@ func (t *tracer) AddEvent(eventType string, scope *gorm.Scope) {
 	}
 	extractFromScope(e, scope)
 
+	for _, f := range scope.Fields() {
+		e.InitialFields = append(e.InitialFields, *f)
+	}
+
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.Events[key] = e
 }
 
-func (t *tracer) CompleteEvent(scope *gorm.Scope) {
+func (t *Tracer) CompleteEvent(scope *gorm.Scope) {
 	key, ok := scope.Get(trackScopeKey)
 	if !ok {
 		return
 	}
 
+	// Complete the event
 	entry := t.Events[key.(string)]
 	entry.EndTime = time.Now()
 	entry.IsComplete = true
 	extractFromScope(entry, scope)
-	writeEntry(entry)
 }
 
 var knownAttrs = []string{
@@ -186,11 +207,37 @@ func extractFromScope(entry *GormEvent, scope *gorm.Scope) {
 	entry.Vars = copyScopeAttrs(scope)
 }
 
-func (t *tracer) Close() {
+func (t *Tracer) Close() {
 	for _, e := range t.Events {
 		if !e.IsComplete {
 			e.EndTime = time.Now()
 			writeEntry(e)
 		}
 	}
+}
+
+func RuleError(msg string) error {
+	return errors.New(msg)
+}
+
+type RuleFunc func(*GormEvent, *gorm.Scope) error
+
+// RULES
+
+func ValuesDoesntMatchSQLVars(event *GormEvent, scope *gorm.Scope) error {
+	notBlankValues := 0
+	for _, f := range event.InitialFields {
+		if !f.IsBlank {
+			notBlankValues++
+		}
+	}
+	if len(scope.SQLVars) != notBlankValues {
+		return RuleError("not cool bro")
+	}
+
+	return nil
+}
+
+var allGenericRules = []RuleFunc{
+	ValuesDoesntMatchSQLVars,
 }
