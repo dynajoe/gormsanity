@@ -9,6 +9,16 @@ import _ from 'lodash'
 
 import './app.scss'
 
+const transactions = {}
+let tx_counter = 0
+const mapTxId = (tx_id) => {
+   if (!_.has(transactions, tx_id)) {
+      transactions[tx_id] = ++tx_counter
+   }
+
+   return transactions[tx_id]
+}
+
 const App = ({ data }) => {
    const [filter, setFilter] = useState('all')
 
@@ -51,6 +61,28 @@ const App = ({ data }) => {
       }),
    }
 
+   const no_where_delete = {
+      title: 'DELETE without WHERE',
+      key: 'no_where_delete',
+      category: 'Warnings',
+      data: warnings.data.filter((q) => {
+         return _.find(q.warnings, (w) => {
+            return w === 'no_where_delete'
+         })
+      }),
+   }
+
+   const no_where_update = {
+      title: 'UPDATE without WHERE',
+      key: 'no_where_update',
+      category: 'Warnings',
+      data: warnings.data.filter((q) => {
+         return _.find(q.warnings, (w) => {
+            return w === 'no_where_update'
+         })
+      }),
+   }
+
    const zero_insert_value = {
       title: 'INSERT zero value',
       key: 'zero_insert_value',
@@ -64,7 +96,12 @@ const App = ({ data }) => {
 
    const categories = [all, slow, warnings]
 
-   const warn_categories = [no_where_clause, zero_insert_value]
+   const warn_categories = [
+      no_where_clause,
+      no_where_delete,
+      no_where_update,
+      zero_insert_value,
+   ]
 
    const table_categories = _(data)
       .groupBy((d) => d.table_name)
@@ -109,7 +146,7 @@ const App = ({ data }) => {
                   />
                   <OverallStats data={data} slow={slow} warnings={warnings} />
                </div>
-               <div className="column">
+               <div className="column is-three-quarters">
                   <Queries current_selection={current_selection} />
                </div>
             </div>
@@ -120,34 +157,50 @@ const App = ({ data }) => {
 
 const MenuSection = ['General', 'Warnings', 'Tables']
 
-const Menu = ({ categories, filter, setFilter }) => {
-   const activeClass = (v, others) =>
-      (v === filter ? 'is-active ' : '') + others
+const optionalClass = (predicate, className, others) =>
+   (predicate ? className : '') + ' ' + others
 
+const Menu = ({ categories, filter, setFilter }) => {
    const groups = _.groupBy(categories, (x) => x.category)
 
    return (
       <aside className="menu">
-         {_.map(MenuSection, (s) => (
-            <React.Fragment key={s}>
-               <p className="menu-label">{s}</p>
-               <ul className="menu-list">
-                  {groups[s].map((c) => (
-                     <li key={c.key}>
-                        <a
-                           className={activeClass(c.key)}
-                           onClick={() => setFilter(c.key)}
-                        >
-                           <span className="tag mr-2 is-info is-light">
-                              {c.data.length}
-                           </span>
-                           {c.title}
-                        </a>
-                     </li>
-                  ))}
-               </ul>
-            </React.Fragment>
-         ))}
+         {_.map(MenuSection, (s) => {
+            const group = _.orderBy(groups[s], (x) => x.data.length, 'desc')
+            return (
+               <React.Fragment key={s}>
+                  <p className="menu-label">{s}</p>
+                  <ul className="menu-list">
+                     {group.map((c) => (
+                        <li key={c.key}>
+                           <a
+                              className={optionalClass(
+                                 filter === c.key,
+                                 'is-active'
+                              )}
+                              onClick={() => setFilter(c.key)}
+                           >
+                              <span
+                                 className={optionalClass(
+                                    s === 'Warnings' && c.data.length > 0,
+                                    'is-warning',
+                                    optionalClass(
+                                       c.data.length > 0,
+                                       'is-info',
+                                       'tag mr-2'
+                                    )
+                                 )}
+                              >
+                                 {c.data.length}
+                              </span>
+                              {c.title}
+                           </a>
+                        </li>
+                     ))}
+                  </ul>
+               </React.Fragment>
+            )
+         })}
       </aside>
    )
 }
@@ -235,11 +288,11 @@ const QueryGroup = ({ group }) => {
       .reduce((x, r) => _.mergeWith(x, r))
 
    return (
-      <div className="card">
+      <div className="card mb-2">
          <header className="card-header">
             <div className="card-header-title">
                <div className="level">
-                  <div className="has-text-dark level-left">
+                  <div className="has-text-light level-left">
                      <span className="tag tag-info is-size-7 mr-2">
                         {queries.length}
                      </span>
@@ -272,7 +325,10 @@ const QueryGroup = ({ group }) => {
                onClick={() => setIsCollapsed(!isCollapsed)}
             >
                <span className="icon">
-                  <i className="fas fa-angle-down" aria-hidden="true"></i>
+                  <i
+                     className={`fas fa-angle-${isCollapsed ? 'left' : 'down'}`}
+                     aria-hidden="true"
+                  ></i>
                </span>
             </a>
          </header>
@@ -280,17 +336,31 @@ const QueryGroup = ({ group }) => {
             {group.map((d, i) => {
                return (
                   <div key={i}>
-                     <div className="query">
+                     <div
+                        className={optionalClass(
+                           d.tx_id !== 0,
+                           'transaction',
+                           'query'
+                        )}
+                     >
                         <Warnings values={d.warnings} />
                         <Highlight
-                           className={'is-size-7' + className}
+                           className={'code is-size-7' + className}
                            language="sql"
                         >
                            {SqlFormatter.format(
                               queryWithVars(d.query, d.sql_vars)
                            )}
                         </Highlight>
-                        <pre className="is-size-7 mb-5">{d.StackTrace}</pre>
+                        {d.tx_id !== 0 ? (
+                           <span className="tag is-size-6 transaction-tag is-link">
+                              {mapTxId(d.tx_id)}
+                           </span>
+                        ) : null}
+
+                        <pre className="is-size-7 mb-5 stack-trace">
+                           {d.stack_trace}
+                        </pre>
                      </div>
                   </div>
                )
@@ -304,10 +374,16 @@ const queryWithVars = (query, vars) => {
    if (_.isEmpty(vars)) {
       return query
    }
-   return query.replace(/\$\d+/g, (r) => {
-      const value = vars[r.substr(1)]
-      return value ? `"${value}"` : 'ZERO_VALUE'
-   })
+   let offset = 0
+   return query
+      .replace(/\$\d+/g, (r, i) => {
+         const value = vars[r.substr(1)]
+         return value ? `"${value}"` : 'ZERO_VALUE'
+      })
+      .replace(/\?/g, () => {
+         const value = vars[offset++]
+         return value ? `"${value}"` : 'ZERO_VALUE'
+      })
 }
 
 const Warnings = ({ values }) => {

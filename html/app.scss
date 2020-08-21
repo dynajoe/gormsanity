@@ -10,9 +10,8 @@
 }
 
 .header {
-   background-color: black;
    padding: 15px;
-   color: white;
+   background-color: #111;
 }
 
 .query {
@@ -23,4 +22,16 @@
       top: 30px;
       font-weight: bold;
    }
+}
+
+.transaction {
+   border-left: 3px solid #3273dc;
+}
+
+.transaction-tag {
+   position: absolute;
+   left: 0;
+   top: 0;
+   border-top-left-radius: 0 !important;
+   border-bottom-left-radius: 0 !important;
 }

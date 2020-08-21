@@ -3,6 +3,7 @@ package trace
 import (
 	"bufio"
 	"bytes"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -59,7 +60,8 @@ type GormEvent struct {
 	TableName     string                 `json:"table_name"`
 	TestName      string                 `json:"test_name"`
 	SQLVars       []interface{}          `json:"sql_vars"`
-	StackTrace    string
+	StackTrace    string                 `json:"stack_trace"`
+	Transaction   uintptr                `json:"tx_id"`
 }
 
 type Tracer struct {
@@ -168,6 +170,7 @@ func (t *Tracer) EventGenerator(eventType string) func(scope *gorm.Scope) {
 func (t *Tracer) AddEvent(eventType string, scope *gorm.Scope) {
 	key := uuid.New().String()
 	scope.Set(trackScopeKey, key)
+
 	e := &GormEvent{
 		StartTime:  time.Now(),
 		EventType:  eventType,
@@ -178,6 +181,11 @@ func (t *Tracer) AddEvent(eventType string, scope *gorm.Scope) {
 	}
 
 	extractFromScope(e, scope)
+
+	if _, ok := scope.SQLDB().(*sql.DB); !ok {
+		p := reflect.ValueOf(scope.SQLDB())
+		e.Transaction = p.Pointer()
+	}
 
 	for _, f := range scope.Fields() {
 		e.InitialFields = append(e.InitialFields, *f)
@@ -251,6 +259,22 @@ func NoWhereClauseInSelect(event *GormEvent, scope *gorm.Scope) error {
 	return nil
 }
 
+func NoWhereClauseInDelete(event *GormEvent, scope *gorm.Scope) error {
+	if event.EventType == "delete" && len(scope.SQLVars) == 0 {
+		event.Warnings = append(event.Warnings, "no_where_delete")
+		return RuleError("no where clause in delete")
+	}
+	return nil
+}
+
+func NoWhereClauseInUpdate(event *GormEvent, scope *gorm.Scope) error {
+	if event.EventType == "update" && len(scope.SQLVars) == 0 {
+		event.Warnings = append(event.Warnings, "no_where_update")
+		return RuleError("no where clause in update")
+	}
+	return nil
+}
+
 func InsertWithBlanks(event *GormEvent, scope *gorm.Scope) error {
 	if event.EventType == "create" {
 		blankValue := false
@@ -276,6 +300,8 @@ func InsertWithBlanks(event *GormEvent, scope *gorm.Scope) error {
 
 var allGenericRules = []RuleFunc{
 	NoWhereClauseInSelect,
+	NoWhereClauseInUpdate,
+	NoWhereClauseInDelete,
 	InsertWithBlanks,
 }
 
