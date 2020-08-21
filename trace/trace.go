@@ -2,10 +2,14 @@ package trace
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"reflect"
+	"runtime/debug"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -53,7 +57,9 @@ type GormEvent struct {
 	InitialFields []gorm.Field           `json:"-"`
 	Warnings      []string               `json:"warnings"`
 	TableName     string                 `json:"table_name"`
+	TestName      string                 `json:"test_name"`
 	SQLVars       []interface{}          `json:"sql_vars"`
+	StackTrace    string
 }
 
 type Tracer struct {
@@ -73,6 +79,8 @@ func TraceDB(db *gorm.DB, testT *testing.T) (*gorm.DB, *Tracer, func()) {
 		testT:  testT,
 		db:     db,
 	}
+
+	t.DescribeTables()
 
 	// Create
 	db.Callback().Create().After("gorm:begin_transaction").Register(trackScopeKey, t.CreateEvent) // INSERT
@@ -108,21 +116,25 @@ func (t *Tracer) GenericAfterComplete(scope *gorm.Scope) {
 	t.CompleteEvent(scope)
 }
 
-	switch entry.EventType {
-	case "delete":
-		// Run specific rules
-	}
+func (t *Tracer) DescribeTables() {
+	// type x struct {
+	// 	tableName  string
+	// 	columnName string
+	// 	dataType   string
+	// }
+	// rows, _ := t.db.Exec("SELECT \n   table_name, \n   column_name, \n   data_type \nFROM \n   information_schema.columns").Rows()
+	// for rows.Next() {
+	// 	informationSchemaRow := x{}
+	// 	rows.Scan(&informationSchemaRow)
+	// 	fmt.Println(informationSchemaRow)
+	// }
 }
 
 func (t *Tracer) RunGenericRules(event *GormEvent, scope *gorm.Scope) {
 	for _, r := range allGenericRules {
 		err := r(event, scope)
 		if err != nil {
-			if t.dontFail {
-				t.Errors = append(t.Errors, err)
-			} else {
-				t.testT.Error(err)
-			}
+			t.Errors = append(t.Errors, err)
 		}
 	}
 }
@@ -161,7 +173,10 @@ func (t *Tracer) AddEvent(eventType string, scope *gorm.Scope) {
 		EventType:  eventType,
 		InstanceID: scope.InstanceID(),
 		TableName:  scope.TableName(),
+		TestName:   t.testT.Name(),
+		StackTrace: excludeGormStack(debug.Stack()),
 	}
+
 	extractFromScope(e, scope)
 
 	for _, f := range scope.Fields() {
@@ -228,21 +243,6 @@ type RuleFunc func(*GormEvent, *gorm.Scope) error
 
 // RULES
 
-func ValuesDoesntMatchSQLVars(event *GormEvent, scope *gorm.Scope) error {
-	notBlankValues := 0
-	defaultGORMFields := []string{"created_at", "updated_at"}
-	for _, f := range event.InitialFields {
-		if !f.IsBlank || stringArrayContains(defaultGORMFields, f.DBName) || f.Struct.Type.Kind() == reflect.Bool {
-			notBlankValues++
-		}
-	}
-	if len(scope.SQLVars) != notBlankValues {
-		return RuleError("not all values provided into GORM have been used for the final SQL query: (%s, %v)", scope.SQL, scope.SQLVars)
-	}
-
-	return nil
-}
-
 func NoWhereClauseInSelect(event *GormEvent, scope *gorm.Scope) error {
 	if event.EventType == "query" && len(scope.SQLVars) == 0 {
 		event.Warnings = append(event.Warnings, "no_where_clause")
@@ -255,6 +255,10 @@ func InsertWithBlanks(event *GormEvent, scope *gorm.Scope) error {
 	if event.EventType == "create" {
 		blankValue := false
 		for _, v := range scope.SQLVars {
+			// Ignore false for now.
+			if v == false {
+				continue
+			}
 			if v == reflect.Zero(reflect.TypeOf(v)).Interface() {
 				blankValue = true
 			}
@@ -270,17 +274,40 @@ func InsertWithBlanks(event *GormEvent, scope *gorm.Scope) error {
 	return nil
 }
 
-func stringArrayContains(arr []string, s string) bool {
-	for _, x := range arr {
-		if s == x {
-			return true
-		}
-	}
-	return false
-}
-
 var allGenericRules = []RuleFunc{
-	ValuesDoesntMatchSQLVars,
 	NoWhereClauseInSelect,
 	InsertWithBlanks,
+}
+
+// excludeGormStack embarassingly hacked together :x
+func excludeGormStack(stacktrace []byte) string {
+	rd := bufio.NewReader(bytes.NewReader(stacktrace))
+	buf := bytes.Buffer{}
+	gormSeen := false
+	consume := false
+	linesConsumed := 0
+	for {
+		line, err := rd.ReadString('\n')
+		if err == io.EOF {
+			break
+		}
+
+		containsGorm := strings.Contains(line, "jinzhu/gorm")
+
+		if containsGorm && !gormSeen {
+			gormSeen = true
+		} else if gormSeen && !containsGorm {
+			consume = true
+		}
+
+		if consume {
+			linesConsumed++
+			buf.WriteString(line)
+			if linesConsumed >= 4 {
+				break
+			}
+		}
+	}
+
+	return string(buf.Bytes())
 }

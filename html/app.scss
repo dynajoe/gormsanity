@@ -14,3 +14,13 @@
    padding: 15px;
    color: white;
 }
+
+.query {
+   position: relative;
+   .warnings {
+      position: absolute;
+      right: 30px;
+      top: 30px;
+      font-weight: bold;
+   }
+}
