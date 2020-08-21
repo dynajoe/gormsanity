@@ -50,6 +50,20 @@ const App = ({ data }) => {
       data: data.filter((q) => !_.isEmpty(q.warnings)),
    }
 
+   const table_categories = _(data)
+      .groupBy((d) => d.table_name)
+      .map((d, k) => {
+         return {
+            title: k,
+            key: k,
+            data: d,
+            category: 'Tables',
+            has_warnings: _.find(d, (d) => !_.isEmpty(d.warnings)),
+         }
+      })
+      .sortBy((x) => x.key)
+      .value()
+
    const no_where_clause = {
       title: 'SELECT without WHERE',
       key: 'no_where_clause',
@@ -96,35 +110,25 @@ const App = ({ data }) => {
 
    const categories = [all, slow, warnings]
 
-   const warn_categories = [
+   let warn_categories = [
       no_where_clause,
       no_where_delete,
       no_where_update,
       zero_insert_value,
    ]
 
-   const table_categories = _(data)
-      .groupBy((d) => d.table_name)
-      .map((d, k) => {
-         return {
-            title: k,
-            key: k,
-            data: d,
-            category: 'Tables',
-         }
-      })
-      .value()
-
-   const all_categories = _.concat(
-      categories,
-      warn_categories,
-      table_categories
-   )
+   let all_categories = _.concat(categories, warn_categories, table_categories)
 
    let current_selection = all_categories.find((x) => x.key === filter)
 
    if (_.isNil(current_selection)) {
       current_selection = all
+   }
+
+   if (current_selection.category === 'Tables') {
+      warn_categories = _.forEach(warn_categories, (c) => {
+         c.data = c.data.filter((d) => d.table_name === current_selection.key)
+      })
    }
 
    return (
@@ -144,12 +148,20 @@ const App = ({ data }) => {
                      setFilter={setFilter}
                      categories={all_categories}
                   />
-                  <OverallStats data={data} slow={slow} warnings={warnings} />
                </div>
                <div className="column is-three-quarters">
+                  <OverallStats data={data} slow={slow} warnings={warnings} />
                   <Queries current_selection={current_selection} />
                </div>
             </div>
+            <footer className="footer">
+               <div className="content has-text-centered">
+                  <p>
+                     there's no place like gorm... there's is no place like
+                     gorm...
+                  </p>
+               </div>
+            </footer>
          </div>
       </>
    )
@@ -166,13 +178,13 @@ const Menu = ({ categories, filter, setFilter }) => {
    return (
       <aside className="menu">
          {_.map(MenuSection, (s) => {
-            const group = _.orderBy(groups[s], (x) => x.data.length, 'desc')
+            const group = groups[s]
             return (
                <React.Fragment key={s}>
                   <p className="menu-label">{s}</p>
-                  <ul className="menu-list">
+                  <ul className="menu-list is-size-7">
                      {group.map((c) => (
-                        <li key={c.key}>
+                        <li key={c.key + c.data.length}>
                            <a
                               className={optionalClass(
                                  filter === c.key,
@@ -193,6 +205,16 @@ const Menu = ({ categories, filter, setFilter }) => {
                               >
                                  {c.data.length}
                               </span>
+                              {c.has_warnings ? (
+                                 <span className="tag mr-2 is-warning">
+                                    {
+                                       _(c.data)
+                                          .flatMap((x) => x.warnings)
+                                          .compact()
+                                          .value().length
+                                    }
+                                 </span>
+                              ) : null}
                               {c.title}
                            </a>
                         </li>
@@ -213,38 +235,41 @@ const OverallStats = ({ data, slow, warnings }) => {
    )
 
    return (
-      <div className="columns is-multiline mt-5">
-         <div className="has-text-centered column is-full">
-            <div>
-               <p className="heading">Queries</p>
-               <p className="title is-size-4">{data.length}</p>
+      <>
+         <h2 className="menu-label">Overiew</h2>
+         <div className="columns is-multiline mt-5">
+            <div className="has-text-centered column">
+               <div>
+                  <p className="heading">Queries</p>
+                  <p className="title is-size-5">{data.length}</p>
+               </div>
+            </div>
+            <div className="has-text-centered column">
+               <div>
+                  <p className="heading">Slow ({'>'}= 1s)</p>
+                  <p className="title is-size-5">{slow.data.length}</p>
+               </div>
+            </div>
+            <div className="has-text-centered column">
+               <div>
+                  <p className="heading">Warnings</p>
+                  <p className="title is-size-5">{warnings.data.length}</p>
+               </div>
+            </div>
+            <div className="has-text-centered column">
+               <div>
+                  <p className="heading">Slowest</p>
+                  <p className="title is-size-5">{slowest.duration} ms</p>
+               </div>
+            </div>
+            <div className="has-text-centered column">
+               <div>
+                  <p className="heading">Average</p>
+                  <p className="title is-size-5">{average_duration} ms</p>
+               </div>
             </div>
          </div>
-         <div className="has-text-centered column is-full">
-            <div>
-               <p className="heading">Slow ({'>'}= 1s)</p>
-               <p className="title is-size-4">{slow.data.length}</p>
-            </div>
-         </div>
-         <div className="has-text-centered column is-full">
-            <div>
-               <p className="heading">Warnings</p>
-               <p className="title is-size-4">{warnings.data.length}</p>
-            </div>
-         </div>
-         <div className="has-text-centered column is-full">
-            <div>
-               <p className="heading">Slowest</p>
-               <p className="title is-size-4">{slowest.duration} ms</p>
-            </div>
-         </div>
-         <div className="has-text-centered column is-full">
-            <div>
-               <p className="heading">Average</p>
-               <p className="title is-size-4">{average_duration} ms</p>
-            </div>
-         </div>
-      </div>
+      </>
    )
 }
 
@@ -254,7 +279,7 @@ const Queries = ({ current_selection }) => {
       <div>
          <nav className="level">
             <div className="level-left">
-               <h2 className="title is-3">{current_selection.title}</h2>
+               <h2 className="menu-label">{current_selection.title}</h2>
             </div>
          </nav>
          {_.map(grouped_queries, (group, k) => {
@@ -296,18 +321,20 @@ const QueryGroup = ({ group }) => {
                      <span className="tag tag-info is-size-7 mr-2">
                         {queries.length}
                      </span>
-                     <span className="is-size-7">{first_query.test_name}</span>
+                     <span className="is-size-7">
+                        {_.take(first_query.test_name.split('/'), 1)}
+                     </span>
                   </div>
                   <div className="has-text-right level-right">
                      <Warnings values={all_warnings} />
                      {_.map(all_settings, (v, k) => {
                         return (
                            <span
-                              title={k}
+                              title={v}
                               key={k}
                               className="tag ml-2 is-info is-light"
                            >
-                              {v}
+                              {k}
                            </span>
                         )
                      })}
@@ -345,19 +372,16 @@ const QueryGroup = ({ group }) => {
                      >
                         <Warnings values={d.warnings} />
                         <Highlight
-                           className={'code is-size-7' + className}
+                           className={'pt-5 code is-size-7' + className}
                            language="sql"
                         >
-                           {SqlFormatter.format(
-                              queryWithVars(d.query, d.sql_vars)
-                           )}
+                           {formatSQL(queryWithVars(d.query, d.sql_vars))}
                         </Highlight>
                         {d.tx_id !== 0 ? (
                            <span className="tag is-size-6 transaction-tag is-link">
                               {mapTxId(d.tx_id)}
                            </span>
                         ) : null}
-
                         <pre className="is-size-7 mb-5 stack-trace">
                            {d.stack_trace}
                         </pre>
@@ -391,13 +415,23 @@ const Warnings = ({ values }) => {
       <div className="warnings">
          {_.map(values, (w) => {
             return (
-               <span key={w} className="tag ml-2 is-warning">
+               <span key={w} className="tag ml-2 is-warning is-size-7">
                   {w}
                </span>
             )
          })}
       </div>
    )
+}
+
+const formatSQL = (sql) => {
+   return sql
+      .replace(/\t/g, ' ')
+      .replace(/(VALUES)/, '\n$1')
+      .replace(/(WHERE)/, '\n$1')
+      .replace(/(FROM)/, '\n$1')
+      .replace(/(ORDER)/, '\n$1')
+      .replace(/(AND|OR)\b/g, '\n  $1')
 }
 
 ReactDOM.render(<App data={window.RAW_DATA} />, document.getElementById('root'))
